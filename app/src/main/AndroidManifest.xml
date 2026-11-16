@@ -11,7 +11,7 @@
         android:name=".App"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="Expenses"
+        android:label="Kaash"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
