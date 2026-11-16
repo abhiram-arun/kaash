@@ -45,6 +45,34 @@ class LogicTest {
         assertEquals("Overdue: Rent", reminderTitle(b, jan31.plusDays(1)))
     }
 
+    @Test fun splitReminders() {
+        val week = dev.expensetracker.work.WEEK_MS
+        val now = 100 * week
+        fun d(id: Long, person: Long, created: Long, settled: Boolean = false, reminded: Long? = null) = SplitDetail(
+            Split(id = id, txnId = 1, personId = person, amountPaise = 100, settled = settled, createdAt = created, lastReminded = reminded),
+            personName = "P$person", payee = "X", txnTime = 0, txnAmount = 200,
+        )
+        val due = dev.expensetracker.work.splitsDueForReminder(
+            listOf(
+                d(1, person = 1, created = now - week),                          // exactly a week old → due
+                d(2, person = 1, created = now - 2 * week),                      // same person → grouped
+                d(3, person = 2, created = now - week + 1),                      // 1 ms short of a week
+                d(4, person = 3, created = now - 3 * week, settled = true),      // settled
+                d(5, person = 4, created = now - 3 * week, reminded = now - 1),  // reminded yesterday
+                d(6, person = 5, created = now - 3 * week, reminded = now - week), // reminded a week ago → due again
+            ),
+            now,
+        )
+        assertEquals(setOf(listOf(1L, 2L), listOf(6L)), due.map { g -> g.map { it.split.id } }.toSet())
+    }
+
+    @Test fun accountDetection() {
+        val sms = dev.expensetracker.parse.SAMPLE_SMS.map { it.second }
+        assertEquals(AccountInfo("Federal Bank", isCard = false), accountInfo(sms[0]))
+        assertEquals(AccountInfo("Federal Bank", isCard = true), accountInfo(sms[1]))
+        assertEquals(AccountInfo("Canara Bank", isCard = false), accountInfo(sms[3])) // debit-card txn on a bank account
+    }
+
     @Test fun calendarOccurrences() {
         val weekly = RecurringBill(name = "Milk", amountPaise = 100, period = Period.WEEKLY, anchorEpochDay = LocalDate.of(2026, 11, 2).toEpochDay())
         assertEquals(5, billsInMonth(listOf(weekly), YearMonth.of(2026, 11)).size) // Nov 2, 9, 16, 23, 30

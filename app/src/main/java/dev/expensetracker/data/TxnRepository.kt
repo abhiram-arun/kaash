@@ -12,7 +12,8 @@ import java.time.YearMonth
 class TxnRepository(private val db: AppDatabase, private val notifier: Notifier) {
     val dao = db.dao()
 
-    suspend fun ingest(sender: String, body: String, timestamp: Long, source: String = "SMS") {
+    /** [notify] is true only for live SMS; inbox backfill must not ping for every historic message. */
+    suspend fun ingest(sender: String, body: String, timestamp: Long, source: String = "SMS", notify: Boolean = false) {
         if (!BankParsers.isBankSender(sender)) return
         val p = BankParsers.parse(body)
         if (p == null) {
@@ -28,7 +29,21 @@ class TxnRepository(private val db: AppDatabase, private val notifier: Notifier)
                 timestamp = timestamp, categoryId = cat, source = source, raw = body,
             )
         )
-        if (id == -1L || p.direction != Direction.DEBIT) return
+        if (id == -1L) {
+            p.balancePaise?.let { dao.fillBalance(p.account, p.amountPaise, timestamp, it) }
+            return
+        }
+        if (notify && cat == null) {
+            val credit = p.direction == Direction.CREDIT
+            notifier.show(
+                id = 3000 + (id % 100_000).toInt(),
+                title = (if (credit) "+" else "−") + rupees(p.amountPaise) + " · " + displayPayee(p.counterparty, p.direction),
+                text = "New ${if (credit) "credit" else "spend"} on ··${p.account}. Tap to tag it.",
+                channel = Notifier.NEW_TXN,
+                txnId = id,
+            )
+        }
+        if (p.direction != Direction.DEBIT) return
         cat?.let { checkBudget(it, timestamp) }
         dao.allBills().firstOrNull { it.matches(key, p.amountPaise, timestamp.toLocalDate()) }
             ?.let { dao.upsertBill(it.copy(paidCount = it.paidCount + 1, lastPaidTxnId = id)) }
@@ -46,33 +61,55 @@ class TxnRepository(private val db: AppDatabase, private val notifier: Notifier)
         if (t.direction == Direction.DEBIT) checkBudget(cat, t.timestamp)
     }
 
+    /** Adds [name] (reusing an existing person, case-insensitively) to this txn's split, or updates their share. */
+    suspend fun addSplit(t: Txn, name: String, amountPaise: Long) = db.withTransaction {
+        val clean = name.trim().replace(Regex("\\s+"), " ")
+        val pid = dao.personId(clean) ?: dao.insertPerson(Person(name = clean))
+        val existing = dao.split(t.id, pid)
+        dao.upsertSplit(
+            existing?.copy(amountPaise = amountPaise)
+                ?: Split(txnId = t.id, personId = pid, amountPaise = amountPaise, createdAt = System.currentTimeMillis())
+        )
+    }
+
+    /** Budgets live on topics; a subtopic tag counts toward its parent topic's budget. */
     private suspend fun checkBudget(cat: Long, timestamp: Long) {
         val ym = YearMonth.from(timestamp.toLocalDate())
         if (ym != YearMonth.now()) return // backfilled history shouldn't fire alerts
-        val b = dao.budget(cat) ?: return
+        val topic = dao.topicOf(cat) ?: return
+        val b = dao.budget(topic) ?: return
         val (from, to) = monthRange(ym)
-        val spent = dao.spent(cat, from, to)
+        val spent = dao.spent(topic, from, to)
         val level = budgetLevel(spent, b.monthlyLimitPaise)
         val monthKey = ym.year * 100 + ym.monthValue
         val already = if (b.alertMonth == monthKey) b.alertLevel else 0
         if (level <= already) return
         dao.upsertBudget(b.copy(alertMonth = monthKey, alertLevel = level))
-        val name = dao.categoryName(cat) ?: "Budget"
+        val name = dao.categoryName(topic) ?: "Budget"
         notifier.show(
-            id = 2000 + cat.toInt(),
+            id = 2000 + topic.toInt(),
             title = if (level >= 100) "$name budget exceeded" else "$name budget at 80%",
             text = "${rupees(spent)} of ${rupees(b.monthlyLimitPaise)} spent this month",
         )
     }
 
-    suspend fun seedCategories() {
-        if (dao.categoryCount() > 0) return
-        dao.insertCategories(
-            listOf(
-                "Food" to 0xFFE57373, "Groceries" to 0xFF81C784, "Transport" to 0xFF64B5F6,
-                "Rent" to 0xFF9575CD, "Bills" to 0xFFFFB74D, "Shopping" to 0xFFF06292,
-                "Transfers" to 0xFF90A4AE, "Income" to 0xFF4DB6AC, "Other" to 0xFFA1887F,
-            ).map { (n, c) -> Category(name = n, color = c) }
-        )
+    /** Inserts missing TAXONOMY topics/subtopics and refreshes colours/icons; matches by name so ids (and tags) are kept. */
+    suspend fun seedCategories() = db.withTransaction {
+        val existing = dao.allCategories()
+        for (t in TAXONOMY) {
+            val topic = existing.firstOrNull { it.parentId == null && it.name == t.name }
+            val topicId = when {
+                topic == null -> dao.insertCategory(Category(name = t.name, color = t.color, icon = t.icon))
+                topic.color != t.color || topic.icon != t.icon -> topic.id.also { dao.updateCategory(topic.copy(color = t.color, icon = t.icon)) }
+                else -> topic.id
+            }
+            for ((name, icon) in t.subs) {
+                val sub = existing.firstOrNull { it.parentId == topicId && it.name == name }
+                when {
+                    sub == null -> dao.insertCategory(Category(name = name, color = t.color, icon = icon, parentId = topicId))
+                    sub.color != t.color || sub.icon != icon -> dao.updateCategory(sub.copy(color = t.color, icon = icon))
+                }
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 package dev.expensetracker.data
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -35,8 +36,15 @@ data class Txn(
     val raw: String,
 )
 
+/** parentId == null → topic; otherwise a subtopic. A txn may be tagged with either. */
 @Entity
-data class Category(@PrimaryKey(autoGenerate = true) val id: Long = 0, val name: String, val color: Long)
+data class Category(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val color: Long,
+    val parentId: Long? = null,
+    val icon: String? = null,
+)
 
 @Entity
 data class MerchantRule(@PrimaryKey val merchantKey: String, val categoryId: Long)
@@ -90,7 +98,50 @@ data class Unparsed(
     val timestamp: Long,
 )
 
+/** Someone the owner splits expenses with. Names are matched case-insensitively before inserting. */
+@Entity(indices = [Index(value = ["name"], unique = true)])
+data class Person(@PrimaryKey(autoGenerate = true) val id: Long = 0, val name: String)
+
+/** [amountPaise] is this person's share of the txn, owed back to the owner. */
+@Entity(indices = [Index("txnId"), Index("personId")])
+data class Split(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val txnId: Long,
+    val personId: Long,
+    val amountPaise: Long,
+    val settled: Boolean = false,
+    val createdAt: Long,
+    val settledAt: Long? = null,
+    val lastReminded: Long? = null,
+)
+
+data class SplitDetail(
+    @Embedded val split: Split,
+    val personName: String,
+    val payee: String,
+    val txnTime: Long,
+    val txnAmount: Long,
+)
+
 data class CatTotal(val categoryId: Long?, val total: Long)
+
+/** Month totals per account; `sample` is any raw SMS for that account, used to tell bank and card apart. */
+data class AccountTotal(val account: String, val spent: Long, val received: Long, val sample: String)
+
+data class AccountInfo(val bank: String, val isCard: Boolean)
+
+fun accountInfo(raw: String) = AccountInfo(
+    bank = when {
+        raw.contains("canara", ignoreCase = true) -> "Canara Bank"
+        raw.contains("federal", ignoreCase = true) -> "Federal Bank"
+        else -> "Bank"
+    },
+    isCard = raw.contains("credit card", ignoreCase = true),
+)
+
+/** Payee for display: drops the long VPA/terminal number banks prefix to card merchants. */
+fun displayPayee(counterparty: String, direction: Direction): String =
+    counterparty.replace(Regex("^\\d{6,}\\s*"), "").ifBlank { if (direction == Direction.CREDIT) "Money received" else "Payment" }
 
 /** 0, 80 or 100: the highest budget threshold the month's spend has crossed. */
 fun budgetLevel(spentPaise: Long, limitPaise: Long) = when {

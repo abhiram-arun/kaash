@@ -6,6 +6,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import dev.expensetracker.data.AppDatabase
+import dev.expensetracker.data.MIGRATION_1_2
+import dev.expensetracker.data.MIGRATION_2_3
 import dev.expensetracker.data.TxnRepository
 import dev.expensetracker.work.DailyBillWorker
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +17,9 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class App : Application() {
-    val db by lazy { Room.databaseBuilder(this, AppDatabase::class.java, "expenses.db").build() }
+    val db by lazy {
+        Room.databaseBuilder(this, AppDatabase::class.java, "expenses.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+    }
     val notifier by lazy { Notifier(this) }
     val repo by lazy { TxnRepository(db, notifier) }
 

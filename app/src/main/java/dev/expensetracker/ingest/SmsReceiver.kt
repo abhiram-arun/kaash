@@ -20,7 +20,7 @@ class SmsReceiver : BroadcastReceiver() {
         val repo = (ctx.applicationContext as App).repo
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-            try { repo.ingest(sender, body, ts) } finally { pending.finish() }
+            try { repo.ingest(sender, body, ts, notify = true) } finally { pending.finish() }
         }
     }
 }

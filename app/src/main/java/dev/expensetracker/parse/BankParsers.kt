@@ -34,8 +34,9 @@ object BankParsers {
     private val rules = listOf(
         // Federal: Debited Rs 77.00 from a/c X8868 on .. via UPI to NAME. Ref 123.Bal Rs 10489.44
         Rule("""Debited Rs ${amt("amt")} from a/c X+(?<acct>\d+) on .+? via UPI to (?<party>.+?)\. Ref (?<ref>\d+)\.\s*Bal Rs ${amt("bal")}""", Direction.DEBIT, Channel.UPI),
-        // Federal CC: INR 24.00 spent on your credit card ending with 6612 at MERCHANT on 15-11-2026
-        Rule("""INR ${amt("amt")} spent on your credit card ending with (?<acct>\d+) at (?<party>.+?) on \d""", Direction.DEBIT, Channel.CARD),
+        // Federal CC: INR 24.00 spent on your credit card ending with 6612 at MERCHANT on 15-11-2026. Available limit Rs.16,305.87
+        // For cards, `bal` holds the available limit.
+        Rule("""INR ${amt("amt")} spent on your credit card ending with (?<acct>\d+) at (?<party>.+?) on [\d-]+\.?(?:\s*Available limit Rs\.?\s?${amt("bal")})?""", Direction.DEBIT, Channel.CARD),
         // Federal: Rs.553.33 credited to your A/c XX8868 on .. BAL-Rs.761.19
         Rule("""Rs\.\s?${amt("amt")} credited to your A/c X+(?<acct>\d+) on .+?BAL-Rs\.\s?${amt("bal")}""", Direction.CREDIT, Channel.OTHER),
         // Canara: Acct XXX437 Dr. INR 27,500.00 on 11/11/26 to NAME; UPI: 123; Bal INR 58,533.06

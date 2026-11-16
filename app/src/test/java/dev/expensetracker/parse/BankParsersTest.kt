@@ -15,7 +15,7 @@ class BankParsersTest {
         ParsedTxn(7700, DEBIT, "8868", UPI, "MANIGANDAN U", "668635377490", 1048944), p(0))
 
     @Test fun federalCardSpend() {
-        assertEquals(ParsedTxn(2400, DEBIT, "6612", CARD, "631948987062 anil s", null, null), p(1))
+        assertEquals(ParsedTxn(2400, DEBIT, "6612", CARD, "631948987062 anil s", null, 1630587), p(1)) // bal = available limit
         assertEquals("ANIL S", p(1).merchantKey)
     }
 
