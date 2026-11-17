@@ -10,11 +10,13 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
-// Both unique indexes dedupe with INSERT OR IGNORE: ref catches the same UPI/RRN twice,
-// (account, amount, timestamp) catches ref-less SMS seen by both the live receiver and the inbox backfill.
+// Both unique indexes dedupe with INSERT OR IGNORE: (ref, account) catches the same UPI/RRN twice on one account
+// (the other side of a self-transfer shares the ref but not the account), and (account, amount, timestamp)
+// catches ref-less SMS seen by both the live receiver and the inbox backfill.
 @Entity(
     indices = [
-        Index(value = ["ref"], unique = true),
+        Index(value = ["ref", "account"], unique = true),
+        Index(value = ["raw"], unique = true), // one SMS text = one txn; bank texts carry refs/balances so never repeat
         Index(value = ["account", "amountPaise", "timestamp"], unique = true),
         Index("timestamp"),
         Index("merchantKey"),
@@ -120,7 +122,6 @@ data class SplitDetail(
     val personName: String,
     val payee: String,
     val txnTime: Long,
-    val txnAmount: Long,
 )
 
 data class CatTotal(val categoryId: Long?, val total: Long)

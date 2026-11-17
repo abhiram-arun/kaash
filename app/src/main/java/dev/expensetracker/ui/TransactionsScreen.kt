@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sms
@@ -65,7 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.expensetracker.BuildConfig
+import dev.expensetracker.App
 import dev.expensetracker.data.Category
 import dev.expensetracker.data.TOPIC_ORDER
 import dev.expensetracker.data.Txn
@@ -73,11 +72,13 @@ import dev.expensetracker.data.TxnRepository
 import dev.expensetracker.ingest.backfillInbox
 import dev.expensetracker.monthRange
 import dev.expensetracker.parse.Direction
-import dev.expensetracker.parse.SAMPLE_SMS
 import dev.expensetracker.rupees
 import dev.expensetracker.toLocalDate
 import dev.expensetracker.zone
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -123,10 +124,16 @@ fun TransactionsScreen(
         openTxnId?.let { tagging = repo.dao.txn(it); onOpened() }
     }
     var smsGranted by remember { mutableStateOf(hasSms(ctx)) }
+    // Re-check on return: on Android 13+ SMS access is granted in system Settings, not via our dialog.
+    LifecycleResumeEffect(Unit) {
+        smsGranted = hasSms(ctx)
+        onPauseOrDispose {}
+    }
     val rescan: () -> Unit = {
-        scope.launch {
-            val n = backfillInbox(ctx, repo)
-            Toast.makeText(ctx, "Scanned $n SMS", Toast.LENGTH_SHORT).show()
+        val app = ctx.applicationContext as App
+        app.scope.launch {
+            val n = backfillInbox(app, repo)
+            withContext(Dispatchers.Main) { Toast.makeText(app, "Scanned $n SMS", Toast.LENGTH_SHORT).show() }
         }
     }
     val askPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -144,12 +151,6 @@ fun TransactionsScreen(
                         Icon(Icons.Rounded.SmsFailed, "Unrecognised bank SMS")
                     }
                 }
-                if (BuildConfig.DEBUG) IconButton({
-                    scope.launch {
-                        val now = System.currentTimeMillis()
-                        SAMPLE_SMS.forEachIndexed { i, (s, b) -> repo.ingest(s, b, now - i * 3_600_000L, notify = true) }
-                    }
-                }) { Icon(Icons.Rounded.BugReport, "Inject sample SMS") }
             }
         }
         item {

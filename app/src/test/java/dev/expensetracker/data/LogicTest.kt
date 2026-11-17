@@ -50,7 +50,7 @@ class LogicTest {
         val now = 100 * week
         fun d(id: Long, person: Long, created: Long, settled: Boolean = false, reminded: Long? = null) = SplitDetail(
             Split(id = id, txnId = 1, personId = person, amountPaise = 100, settled = settled, createdAt = created, lastReminded = reminded),
-            personName = "P$person", payee = "X", txnTime = 0, txnAmount = 200,
+            personName = "P$person", payee = "X", txnTime = 0,
         )
         val due = dev.expensetracker.work.splitsDueForReminder(
             listOf(

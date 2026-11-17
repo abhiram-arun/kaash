@@ -13,30 +13,33 @@ class TxnRepository(private val db: AppDatabase, private val notifier: Notifier)
     val dao = db.dao()
 
     /** [notify] is true only for live SMS; inbox backfill must not ping for every historic message. */
-    suspend fun ingest(sender: String, body: String, timestamp: Long, source: String = "SMS", notify: Boolean = false) {
+    suspend fun ingest(sender: String, body: String, timestamp: Long, notify: Boolean = false) {
         if (!BankParsers.isBankSender(sender)) return
         val p = BankParsers.parse(body)
         if (p == null) {
             if (BankParsers.looksLikeTxn(body)) dao.insertUnparsed(Unparsed(sender = sender, body = body, timestamp = timestamp))
+            else dao.deleteUnparsed(sender, timestamp) // noise logged by an older, looser filter
             return
         }
+        dao.deleteUnparsed(sender, timestamp) // a format the parser has since learned leaves the unparsed list on rescan
         val key = p.merchantKey
         val cat = if (key.isBlank()) null else dao.ruleFor(key)
         val id = dao.insertTxn(
             Txn(
                 amountPaise = p.amountPaise, direction = p.direction, account = p.account, channel = p.channel,
                 counterparty = p.counterparty, merchantKey = key, ref = p.ref, balancePaise = p.balancePaise,
-                timestamp = timestamp, categoryId = cat, source = source, raw = body,
+                timestamp = timestamp, categoryId = cat, source = "SMS", raw = body,
             )
         )
         if (id == -1L) {
+            dao.keepEarliest(body, timestamp)
             p.balancePaise?.let { dao.fillBalance(p.account, p.amountPaise, timestamp, it) }
             return
         }
         if (notify && cat == null) {
             val credit = p.direction == Direction.CREDIT
             notifier.show(
-                id = 3000 + (id % 100_000).toInt(),
+                id = id.toInt(),
                 title = (if (credit) "+" else "−") + rupees(p.amountPaise) + " · " + displayPayee(p.counterparty, p.direction),
                 text = "New ${if (credit) "credit" else "spend"} on ··${p.account}. Tap to tag it.",
                 channel = Notifier.NEW_TXN,

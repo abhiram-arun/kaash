@@ -33,6 +33,10 @@ interface AppDao {
     @Query("UPDATE Txn SET balancePaise = :bal WHERE account = :account AND amountPaise = :amount AND timestamp = :ts AND balancePaise IS NULL")
     suspend fun fillBalance(account: String, amount: Long, ts: Long, bal: Long)
 
+    /** The earliest sighting of an SMS is its real time (inbox date_sent); later copies only move it earlier. */
+    @Query("UPDATE Txn SET timestamp = :ts WHERE raw = :raw AND timestamp > :ts")
+    suspend fun keepEarliest(raw: String, ts: Long)
+
     @Query("SELECT * FROM Txn WHERE id = :id")
     suspend fun txn(id: Long): Txn?
 
@@ -154,21 +158,21 @@ interface AppDao {
     suspend fun insertPerson(p: Person): Long
 
     @Query(
-        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime, t.amountPaise AS txnAmount
+        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime
         FROM Split s JOIN Person p ON p.id = s.personId JOIN Txn t ON t.id = s.txnId
         WHERE s.txnId = :txnId ORDER BY s.id"""
     )
     fun splitsFor(txnId: Long): Flow<List<SplitDetail>>
 
     @Query(
-        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime, t.amountPaise AS txnAmount
+        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime
         FROM Split s JOIN Person p ON p.id = s.personId JOIN Txn t ON t.id = s.txnId
         WHERE s.settled = 0 ORDER BY p.name COLLATE NOCASE, t.timestamp"""
     )
     fun unsettled(): Flow<List<SplitDetail>>
 
     @Query(
-        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime, t.amountPaise AS txnAmount
+        """SELECT s.*, p.name AS personName, t.counterparty AS payee, t.timestamp AS txnTime
         FROM Split s JOIN Person p ON p.id = s.personId JOIN Txn t ON t.id = s.txnId
         WHERE s.settled = 0"""
     )
@@ -192,6 +196,9 @@ interface AppDao {
     // Unparsed
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertUnparsed(u: Unparsed)
+
+    @Query("DELETE FROM Unparsed WHERE sender = :sender AND timestamp = :ts")
+    suspend fun deleteUnparsed(sender: String, ts: Long)
 
     @Query("SELECT * FROM Unparsed ORDER BY timestamp DESC")
     fun unparsed(): Flow<List<Unparsed>>

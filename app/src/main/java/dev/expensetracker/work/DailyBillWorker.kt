@@ -28,7 +28,7 @@ class DailyBillWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
         for (rows in splitsDueForReminder(dao.unsettledList(), now)) {
             val first = rows.minBy { it.split.createdAt }
             app.notifier.show(
-                id = 4000 + first.split.personId.toInt(),
+                id = first.split.personId.toInt(),
                 title = "${first.personName} owes you ${rupees(rows.sumOf { it.split.amountPaise })}",
                 text = if (rows.size == 1) "Split for ${displayPayee(first.payee, Direction.DEBIT)} isn't settled yet."
                 else "${rows.size} splits aren't settled yet.",

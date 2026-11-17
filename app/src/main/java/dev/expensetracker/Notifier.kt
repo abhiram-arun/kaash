@@ -34,6 +34,7 @@ class Notifier(private val ctx: Context) {
             .apply { txnId?.let { putExtra(EXTRA_TXN, it) } }
         val open = PendingIntent.getActivity(ctx, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         nm.notify(
+            channel, // tag: ids only need to be unique within a channel, so txn #1001 can't replace person #1's reminder
             id,
             Notification.Builder(ctx, channel)
                 .setSmallIcon(R.drawable.ic_launcher)
